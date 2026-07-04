@@ -2,9 +2,11 @@
 <!DOCTYPE html>
 <html>
 <head>
+    <meta charset="UTF-8">
     <title>Cognitive Evaluation</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
     <style>
         body { background: #f4f7f9; font-family: 'Inter', sans-serif; padding-bottom: 80px; }
         
@@ -24,6 +26,13 @@
         
         .sample-item { cursor: pointer; padding: 8px; border-bottom: 1px solid #eee; transition: 0.2s; font-size: 0.9rem; }
         .sample-item:hover { background: #f1f5f9; }
+
+        .rank-list { list-style: none; padding: 0; margin: 0; }
+        .rank-item { display: flex; align-items: center; gap: 12px; background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; cursor: grab; }
+        .rank-item.sortable-ghost { opacity: 0.4; }
+        .rank-item.sortable-chosen { box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+        .rank-badge { flex: 0 0 28px; height: 28px; border-radius: 50%; background: #6366f1; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.85rem; }
+        .drag-handle { color: #94a3b8; font-size: 1.1rem; user-select: none; }
     </style>
 </head>
 <body>
@@ -105,18 +114,54 @@
                 <div class="mb-4 p-3 border rounded">
                     <div class="question-header">
                         <span class="question-aspect">${key}:</span> ${questionTexts[key]}
-                    </div>`;
-                
-                qHtml += val.options.map((opt, i) => `
-                    <div class="form-check mb-2">
-                        <input class="form-check-input" type="radio" name="${key}" id="${key+i}" value="${i+1}">
-                        <label class="form-check-label fw-semibold" for="${key+i}">${opt}</label>
                     </div>
-                `).join('');
+                    <div class="form-text mb-2">Drag to rank from most likely (top) to least likely (bottom).</div>`;
+
+                const order = shuffledIndices(val.options.length);
+                qHtml += `<ul class="rank-list" id="ranklist-${key}">` + order.map((origIdx, pos) => `
+                    <li class="rank-item" data-index="${origIdx+1}">
+                        <span class="rank-badge">${pos+1}</span>
+                        <span class="drag-handle">⋮⋮</span>
+                        <span class="flex-grow-1 fw-semibold">${val.options[origIdx]}</span>
+                    </li>
+                `).join('') + `</ul>`;
                 qHtml += `</div>`;
             }
             document.getElementById('questions-container').innerHTML = qHtml;
+
+            for(const key of Object.keys(s.mcq)) {
+                const listEl = document.getElementById(`ranklist-${key}`);
+                new Sortable(listEl, {
+                    animation: 150,
+                    ghostClass: 'sortable-ghost',
+                    chosenClass: 'sortable-chosen',
+                    handle: '.drag-handle',
+                    onEnd: () => updateRankBadges(listEl)
+                });
+            }
+
             window.scrollTo(0,0);
+        }
+
+        function shuffledIndices(n) {
+            const arr = Array.from({length: n}, (_, i) => i);
+            for(let i = arr.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [arr[i], arr[j]] = [arr[j], arr[i]];
+            }
+            return arr;
+        }
+
+        function updateRankBadges(listEl) {
+            listEl.querySelectorAll('.rank-item').forEach((li, idx) => {
+                li.querySelector('.rank-badge').innerText = idx + 1;
+            });
+        }
+
+        function getRanking(key) {
+            const listEl = document.getElementById(`ranklist-${key}`);
+            if(!listEl) return null;
+            return Array.from(listEl.querySelectorAll('.rank-item')).map(li => parseInt(li.dataset.index, 10));
         }
 
         function submitResponse() {
@@ -125,15 +170,15 @@
                 index: currentIdx,
                 branch_id: dataset[currentIdx].branch_id,
                 answers: {
-                    belief: document.querySelector('input[name="belief"]:checked')?.value,
-                    emotion: document.querySelector('input[name="emotion"]:checked')?.value,
-                    intent: document.querySelector('input[name="intent"]:checked')?.value
+                    belief: getRanking('belief'),
+                    emotion: getRanking('emotion'),
+                    intent: getRanking('intent')
                 },
                 timestamp: new Date().toISOString()
             };
-            
+
             if(!res.answers.belief || !res.answers.emotion || !res.answers.intent) {
-                return alert("Please answer all questions before proceeding.");
+                return alert("Please rank all questions before proceeding.");
             }
             
             let all = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
